@@ -351,6 +351,20 @@ int divide(Word *word, Word *caller) {
   return push_int2(a / b);
 }
 
+
+int divide2(Word *word, Word *caller) {
+  int err = 1;
+  int b = pop_int(&err);
+  if (err != 1) {
+    return err;
+  }
+  int a = pop_int(&err);
+  if (err != 1) {
+    return err;
+  }
+  return push_int(a / b);
+}
+
 int mod(Word *word, Word *caller) {
   int err = 1;
   int b = pop_int(&err);
@@ -869,6 +883,11 @@ int main() {
   add_primitive("/", divide);
   add_primitive("-", sub);
   add_primitive("%", sub);
+  add_primitive("2+", add2);
+  add_primitive("2*", mul2);
+  add_primitive("2/", divide2);
+  add_primitive("2-", sub2);
+  add_primitive("2%", mod2);
   add_primitive(".", dot);
   add_primitive("dup", dup);
   add_primitive("pop", pop);
