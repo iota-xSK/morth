@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2024 [fullname]
+Copyright (c) 2024 Juraj Babič
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -656,6 +656,10 @@ cell bye(Word *self, Word *caller) { exit(0); }
 
 cell search(Word*, Word*);
 int allocate_literal(cell value);
+
+int does(Word* self, Word* caller) {
+
+}
 
 int literal(Word *word, Word *caller) {
   cell err = 1;
