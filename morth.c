@@ -80,12 +80,14 @@ static char *inputbuff;
 cell inputidx = 0;
 static char next_word[16];
 static char lookahead_word[16];
-static cell memtop = -1;
+static cell memtop = 0;
+
+bool state = 0;
+cell wordindef = 0;
 
 int pcount = 0;
 
 char *advance() {
-start:
   while (isspace(inputbuff[inputidx]) && inputbuff[inputidx] != '\0')
     inputidx++;
 
@@ -99,19 +101,56 @@ start:
   next_word[i] = '\0';
   inputidx += i;
 
+  // FIXME: comments don't comment!
   if (strcmp(next_word, "(") == 0) {
     pcount++;
-    printf("parent: %s, %i\n", next_word, pcount);
     advance();
   } else if (strcmp(next_word, ")") == 0) {
     pcount--;
-    printf("parent: %s, %i\n", next_word, pcount);
     if (pcount != 0)
       advance();
-    advance();
   }
 
   return next_word;
+}
+
+int char_to_int(char c) {
+  if (isdigit(c))
+    return c - '0';
+  else if (isalpha(c)) {
+    return toupper(c) - 'A' + 10;
+  } else
+    return -2; // Invalid character
+}
+
+int parse_num(char *str, int base, int *num) {
+  int result = 0;
+  int index = 0;
+  int sign = 1;
+
+  // Check for sign
+  if (str[index] == '-') {
+    sign = -1;
+    index++;
+  }
+
+  if (str[index] == '\0') {
+    return -7;
+  }
+
+  while (isspace(str[index]) == 0 && str[index] != '\0') {
+    int digit = char_to_int(str[index]);
+    if (digit >= base || digit < 0) {
+      return -2;
+    }
+    result = result * base + digit;
+    index++;
+  }
+  result *= sign;
+
+  *num = result;
+
+  return 1;
 }
 
 int lookahead_idx;
@@ -208,7 +247,7 @@ cell pushr_int(cell to_push) {
 }
 
 cell balloc_int(cell size) {
-  if (size <= 0 || size + memtop >= MEMSIZE) {
+  if (size + memtop >= MEMSIZE) {
     return -8;
   }
   cell r = memtop;
@@ -222,7 +261,8 @@ cell balloc(Word *self, Word *caller) { // returns index into membank
   if (err != 1) {
     return err;
   }
-  return err = balloc_int(size);
+  balloc_int(size);
+  return err = 1;
 }
 
 cell bfree_int(cell size) {
@@ -350,7 +390,6 @@ int divide(Word *word, Word *caller) {
   }
   return push_int2(a / b);
 }
-
 
 int divide2(Word *word, Word *caller) {
   int err = 1;
@@ -587,7 +626,6 @@ int jmp(Word *word, Word *caller) {
   if (err != 1) {
     return err;
   }
-  printf("jumping to %i\n", pos);
   pushr_int(pos - 1);
 
   return 1;
@@ -612,20 +650,38 @@ int jmpz(Word *word, Word *caller) {
     if (err != 1) {
       return err;
     }
-    printf("jumping to %i\n", pos);
     pushr_int(pos - 1);
   }
 
   return 1;
 }
 
+int enter(Word *word, Word *caller) {
+  ip_d = 0;
+  int err = 1;
+  while (ip_d < word->def_len) {
+    Word *entering_word = &dict[word->def[ip_d]];
+    err = pushr_int(ip_d);
+    if (err != 1) {
+      return err;
+    }
+    entering_word->enter(entering_word, word);
+    ip_d = popr_int(&err);
+    if (err != 1) {
+      return err;
+    }
+    ip_d++;
+  }
+  return 1;
+}
+
 cell write(Word *self, Word *caller) {
   cell err = 1;
-  cell data = pop_int(&err);
+  cell addr = pop_int(&err);
   if (err != 1) {
     return err;
   }
-  cell addr = pop_int(&err);
+  cell data = pop_int(&err);
   if (err != 1) {
     return err;
   }
@@ -668,14 +724,105 @@ cell negate(Word *self, Word *caller) {
 }
 cell bye(Word *self, Word *caller) { exit(0); }
 
-cell search(Word*, Word*);
+cell search(Word *, Word *);
 int allocate_literal(cell value);
 
-int does(Word* self, Word* caller) {
-
+cell create(Word *self, Word *caller) {
+  wordindef = 0;
+  if (*advance() == '\0') {
+    return -1;
+  }
+  top_word++;
+  printf("created %s at position %i", next_word, top_word);
+  memcpy(dict[top_word].name, next_word, sizeof(next_word));
+  dict[top_word].enter = enter;
+  dict[top_word].def_len = 2;
+  dict[top_word].def[0] = 0; // litral
+  dict[top_word].def[1] = memtop;
+  dict[top_word].immediate = false;
+  return 1;
 }
 
-int literal(Word *word, Word *caller) {
+int compile(Word *self, Word *caller) {
+  int err = 1;
+  search(NULL, self);
+  int found = pop_int(&err);
+  if (err != 1)
+    return err;
+  if (found >= 0) {
+    if (dict[found].immediate) {
+      cell err = dict[found].enter(&dict[found], NULL);
+      if (err != 1)
+        return err;
+    } else {
+      dict[top_word].def[dict[top_word].def_len++] = found;
+    }
+  } else {
+    cell to_push = 0;
+    if (parse_num(next_word, 10, &to_push) == 1) {
+      allocate_literal(to_push);
+    } else {
+      printf("unknown word: %s\n", next_word);
+    }
+  }
+  return 1;
+}
+
+cell does(Word *self, Word *caller) {
+  while (state != 0) {
+    advance();
+    compile(NULL, self);
+  }
+  return 1;
+}
+
+cell see(Word* self, Word* caller) {
+  advance();
+  search(NULL, self);
+  int err = 1;
+  cell word = pop_int(&err);
+  for (int i = 0; i<dict[word].def_len; i++) {
+    printf("%s ", dict[dict[word].def[i]].name);
+    if(dict[word].def[i] == 0) {
+      printf("%i ", dict[word].def[++i]);
+    }
+  }
+  putchar('\n');
+  return 1;
+}
+
+cell here(Word *self, Word *caller) {
+  int err = push_int(memtop);
+  if (err != 0) {
+    return err;
+  }
+  return 1;
+}
+
+cell comma(Word *self, Word *caller) {
+  cell err = push_int(1);
+  if (err != 1) {
+    return -8;
+  }
+  cell place = balloc(NULL, self);
+  if (place >= 0) {
+    int num = pop_int(&err);
+    if (err != 1) {
+      return -8;
+    }
+    membank[place] = num;
+  }
+  return 1;
+}
+
+cell immediate(Word *self, Word *caller) {
+  if (top_word >= 0) {
+    dict[top_word].immediate = true;
+  }
+  return 1;
+}
+
+int pushliteral(Word *word, Word *caller) {
   cell err = 1;
   cell ip = popr_int(&err);
   err = pushr_int(ip + 1);
@@ -686,46 +833,15 @@ int literal(Word *word, Word *caller) {
   return push_int(n);
 }
 
-int char_to_int(char c) {
-  if (isdigit(c))
-    return c - '0';
-  else if (isalpha(c)) {
-    return toupper(c) - 'A' + 10;
-  } else
-    return -2; // Invalid character
-}
-
-int parse_num(char *str, int base, int *num) {
-  int result = 0;
-  int index = 0;
-  int sign = 1;
-
-  // Check for sign
-  if (str[index] == '-') {
-    sign = -1;
-    index++;
-  }
-
-  if (str[index] == '\0') {
-    return -7;
-  }
-
-  while (isspace(str[index]) == 0 && str[index] != '\0') {
-    int digit = char_to_int(str[index]);
-    if (digit >= base || digit < 0) {
-      return -2;
-    }
-    result = result * base + digit;
-    index++;
-  }
-  result *= sign;
-
-  *num = result;
-
+int literal(Word *word, Word *caller) {
+  cell err = 1;
+  cell n = pop_int(&err);
+  dict[top_word].def[dict[top_word].def_len++] = 0;
+  dict[top_word].def[dict[top_word].def_len++] = n;
   return 1;
 }
 
-int search(Word* self, Word* caller) {
+int search(Word *self, Word *caller) {
   for (int i = top_word; i >= 0; i--) {
     if (strcmp(dict[i].name, next_word) == 0) {
       push_int(i);
@@ -756,9 +872,6 @@ int find_token_int() {
 
 int tick(Word *word, Word *caller) { return find_token_int(); }
 
-bool state = 0;
-cell wordindef = 0;
-
 int allocate_literal(cell value) {
   dict[top_word].def[dict[top_word].def_len++] = 0;
   dict[top_word].def[dict[top_word].def_len++] = value;
@@ -766,43 +879,19 @@ int allocate_literal(cell value) {
 }
 
 int semicolon(Word *self, Word *caller) {
-  for (int i; i<dict[top_word].def_len; i++) {
-    printf("%s ", dict[dict[top_word].def[i]].name);
-  }
-  putchar('\n');
+  /* for (int i; i < dict[top_word].def_len; i++) { */
+  /*   printf("%s ", dict[dict[top_word].def[i]].name); */
+  /* } */
   state = 0;
-  for (int i = 0; i < dict[top_word].def_len; i++) {
-    printf("%i ", dict[top_word].def[i]);
-  }
-  putchar('\n');
+  //for (int i = 0; i < dict[top_word].def_len; i++) {
+    //printf("%i ", dict[top_word].def[i]);
+  //}
+  //putchar('\n');
   return 1;
 }
 
 int fadvance(Word *self, Word *caller) {
   advance();
-  return 1;
-}
-
-int enter(Word *word, Word *caller) {
-  ip_d = 0;
-  int err = 1;
-  while (ip_d < word->def_len) {
-    printf("succesfully entered");
-    Word *entering_word = &dict[word->def[ip_d]];
-    printf("pushed %i to return\n", ip_d);
-    err = pushr_int(ip_d);
-    if (err != 1) {
-      printf("error pushing onto return stack\n");
-      return err;
-    }
-    entering_word->enter(entering_word, word);
-    ip_d = popr_int(&err);
-    printf("popped %i from return\n", ip_d);
-    if (err != 1) {
-      return err;
-    }
-    ip_d++;
-  }
   return 1;
 }
 
@@ -812,7 +901,6 @@ int colon(Word *word, Word *caller) {
     printf("error: no definiton name\n");
     return -1;
   }
-  printf("defined: %s\n", next_word);
   memcpy(dict[++top_word].name, next_word, sizeof(next_word));
   dict[top_word].enter = enter;
   state = 1;
@@ -846,38 +934,13 @@ void add_non_primitive(char name[], cell *def, cell def_len) {
   dict[top_word].immediate = false;
 }
 
-
-
-int compile(Word* self, Word* caller) {
-  int err = 1;
-  search(NULL, self);
-  int found = pop_int(&err);
-  if (err != 1) return err;
-  if (found >= 0) {
-    if (dict[found].immediate) {
-      cell err = dict[found].enter(&dict[found], NULL);
-      if (err != 1)
-        return err;
-    } else {
-      dict[top_word].def[dict[top_word].def_len++] = found;
-    }
-  } else {
-    cell to_push = 0;
-    if (parse_num(next_word, 10, &to_push) == 1) {
-      allocate_literal(to_push);
-    }
-  }
-  return 1;
-}
-
 int main() {
   dict = (Word *)malloc(WORD_N * sizeof(Word));
   membank = (cell *)malloc(MEMSIZE * sizeof(cell));
-  inputbuff = (char *)malloc(BUFSIZE * sizeof(char));
 
   int idx = 0;
 
-  add_primitive("literal", literal); // must be first!!!!
+  add_primitive("lit", pushliteral); // must be first!!!!
   add_primitive("+", add);
   add_primitive("*", mul);
   add_primitive("/", divide);
@@ -889,6 +952,10 @@ int main() {
   add_primitive("2-", sub2);
   add_primitive("2%", mod2);
   add_primitive(".", dot);
+  add_primitive("<", lth);
+  add_primitive(">", gth);
+  add_primitive("2<", lth2);
+  add_primitive("2>", gth2);
   add_primitive("dup", dup);
   add_primitive("pop", pop);
   add_primitive("swp", swp);
@@ -897,31 +964,43 @@ int main() {
   add_primitive(":", colon);
   add_primitive("jmp", jmp);
   add_primitive("jmpz", jmpz);
-  add_primitive("alloc", balloc);
   add_primitive("free", bfree);
   add_primitive("not", negate);
   add_primitive("or", or);
   add_primitive("and", and);
   add_primitive("bye", bye);
+  add_primitive("create", create);
+  add_primitive("literal", literal);
+  add_primitive("allot", balloc);
+  add_primitive("here", here);
+  add_primitive("@", read);
+  add_primitive("!", write);
+  add_primitive("see", see);
   add_primitive_immediate("compile", compile);
   add_primitive_immediate(";", semicolon);
   add_primitive_immediate("advance", fadvance);
+  add_primitive_immediate("does>", does);
 
-  // cell dupt[2] = {search("dup"), search("+")};
-  // add_non_primitive("twice", dupt, 2, 0);
-  // cell doubletwice[3] = {search("twice"), search("twice"), search(".")};
-  // add_non_primitive("dt", doubletwice, 3, 0);
+  FILE* test_file = fopen("test.4th", "r");
+  if (!test_file) {
+    return -1;
+  }
+  FILE *f = fopen("test.4th", "r");
+  fseek(f, 0, SEEK_END);
+  long fsize = ftell(f);
+  inputbuff = (char *)malloc(fsize);
+  fseek(f, 0, SEEK_SET);  /* same as rewind(f); */
+  fread(inputbuff, fsize, 1, f);
+  fclose(f);
 
-  // char input[] = " : twice dup + ; 3 2 twice . ";
-  // strcpy(inputbuff, input);
-  // memcpy(inputbuff, "hello  world", sizeof("hello  world"));
-  while (1) {
+  inputbuff[fsize] = 0;
+  /*while (1) {
     inputidx = 0;
-    fgets(inputbuff, 1024, stdin);
+  */
     while (strcmp(advance(), "") != 0) {
       if (state == 0) { // interpret mode
-      int err = search(NULL, NULL);
-      int found = pop_int(&err);
+        int err = search(NULL, NULL);
+        int found = pop_int(&err);
         if (found >= 0) {
           cell err = dict[found].enter(&dict[found], NULL);
           if (err != 1)
@@ -930,13 +1009,15 @@ int main() {
           cell to_push = 0;
           if (parse_num(next_word, 10, &to_push) == 1) {
             push_int(to_push);
+          } else {
+            printf("unknown word: %s", next_word);
           }
         }
       } else { // compile mode
         compile(NULL, NULL);
       }
     }
-  }
+  /*}*/
   free(dict);
   free(membank);
   free(inputbuff);
