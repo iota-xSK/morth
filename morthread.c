@@ -49,9 +49,9 @@ SOFTWARE.
 #include <stdbool.h>
 #include <stdint.h>
 
-#define CHECK                                                                  \
-  if (err != 1) {                                                              \
-    return err;                                                                \
+#define CHECK(_err)                                                            \
+  if (_err != 1) {                                                             \
+    return _err;                                                               \
   }
 
 struct Op;
@@ -103,6 +103,7 @@ typedef struct {
 typedef struct Word {
   struct Op *Def;
   char *name;
+  bool immediate;
 } Word;
 
 typedef struct Dict {
@@ -114,7 +115,6 @@ typedef struct Ctx {
   struct Op *ip;
   Stack rs;
   Stack ds;
-  Stack cfs; // control flow stack
   bool compile;
   Dict dict;
 } Ctx;
@@ -125,6 +125,31 @@ typedef struct Op {
   func head;
   Data body;
 } Op;
+
+
+cell_t new_word(Dict** dict, char* name, Op ops[], cell_t length) {
+  Op* new_ops = (Op*)malloc(length*sizeof(Op));
+  if (new_ops == NULL) {
+    return -2;
+  }
+  memcpy(new_ops, ops, sizeof(Op)*length);
+  char* new_name = (char*)malloc(strlen(name)+1);
+  if (new_name== NULL) {
+    return -2;
+  }
+  memcpy(new_name, name, strlen(name) + 1);
+  Dict* new_dict = (Dict*)malloc(sizeof(Dict));
+  if (new_dict== NULL) {
+    return -2;
+  }
+  if (new_name== NULL) {
+    return -2;
+  }
+  new_dict->next = *dict;
+  *dict = new_dict;
+  return 1;
+}
+
 
 Data pop(cell_t *err, Stack *ds) {
   if (ds->sp < 0) {
@@ -170,12 +195,12 @@ cell_t push2(dcell_t to_push, Stack *ds) {
 cell_t add(Data data, Ctx *ctx) {
   cell_t err = 1;
   cell_t b = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   cell_t a = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   Data d = {.data = a + b};
   err = push(d, &ctx->ds);
-  CHECK;
+  CHECK(err);
   ctx->ip++;
   return 1;
 }
@@ -183,12 +208,12 @@ cell_t add(Data data, Ctx *ctx) {
 cell_t sub(Data data, Ctx *ctx) {
   cell_t err = 1;
   cell_t b = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   cell_t a = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   Data d = {.data = a * b};
   err = push(d, &ctx->ds);
-  CHECK;
+  CHECK(err);
   ctx->ip++;
   return 1;
 }
@@ -196,12 +221,12 @@ cell_t sub(Data data, Ctx *ctx) {
 cell_t divide(Data data, Ctx *ctx) {
   cell_t err = 1;
   cell_t b = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   cell_t a = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   Data d = {.data = a / b};
   err = push(d, &ctx->ds);
-  CHECK;
+  CHECK(err);
   ctx->ip++;
   return 1;
 }
@@ -209,12 +234,12 @@ cell_t divide(Data data, Ctx *ctx) {
 cell_t mul(Data data, Ctx *ctx) {
   cell_t err = 1;
   cell_t b = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   cell_t a = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   Data d = {.data = a * b};
   err = push(d, &ctx->ds);
-  CHECK;
+  CHECK(err);
   ctx->ip++;
   return 1;
 }
@@ -222,12 +247,12 @@ cell_t mul(Data data, Ctx *ctx) {
 cell_t mod(Data data, Ctx *ctx) {
   cell_t err = 1;
   cell_t b = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   cell_t a = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   Data d = {.data = a % b};
   err = push(d, &ctx->ds);
-  CHECK;
+  CHECK(err);
   ctx->ip++;
   return 1;
 }
@@ -235,9 +260,9 @@ cell_t mod(Data data, Ctx *ctx) {
 cell_t gth(Data data, Ctx *ctx) {
   cell_t err = 1;
   cell_t b = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   cell_t a = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   if (a > b) {
     Data d = {.data = -1};
     err = push(d, &ctx->ds);
@@ -245,7 +270,7 @@ cell_t gth(Data data, Ctx *ctx) {
     Data d = {.data = 0};
     err = push(d, &ctx->ds);
   }
-  CHECK;
+  CHECK(err);
   ctx->ip++;
   return 1;
 }
@@ -253,9 +278,9 @@ cell_t gth(Data data, Ctx *ctx) {
 cell_t lth(Data data, Ctx *ctx) {
   cell_t err = 1;
   cell_t b = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   cell_t a = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   if (a < b) {
     Data d = {.data = -1};
     err = push(d, &ctx->ds);
@@ -263,7 +288,7 @@ cell_t lth(Data data, Ctx *ctx) {
     Data d = {.data = 0};
     err = push(d, &ctx->ds);
   }
-  CHECK;
+  CHECK(err);
   ctx->ip++;
   return 1;
 }
@@ -271,11 +296,11 @@ cell_t lth(Data data, Ctx *ctx) {
 cell_t dup(Data data, Ctx *ctx) {
   cell_t err = 1;
   Data a = pop(&err, &ctx->ds);
-  CHECK;
+  CHECK(err);
   err = push(a, &ctx->ds);
-  CHECK;
+  CHECK(err);
   err = push(a, &ctx->ds);
-  CHECK;
+  CHECK(err);
   ctx->ip++;
   return 1;
 }
@@ -283,7 +308,7 @@ cell_t dup(Data data, Ctx *ctx) {
 cell_t dot(Data data, Ctx *ctx) {
   cell_t err = 1;
   cell_t a = pop(&err, &ctx->ds).data;
-  CHECK;
+  CHECK(err);
   printf("%i\n", a);
   ctx->ip++;
   return 1;
@@ -292,14 +317,14 @@ cell_t dot(Data data, Ctx *ctx) {
 cell_t ret(Data data, Ctx *ctx) {
   cell_t err = 1;
   Op *a = pop(&err, &ctx->rs).op;
-  CHECK;
+  CHECK(err);
   ctx->ip = a;
   return 1;
 }
 
 cell_t lit(Data data, Ctx *ctx) {
   int err = push(data, &ctx->ds);
-  CHECK;
+  CHECK(err);
   ctx->ip++;
   return 1;
 }
@@ -308,7 +333,7 @@ cell_t subroutine(Data data, Ctx *ctx) {
   ctx->ip++;
   Data d = {.op = ctx->ip};
   cell_t err = push(d, &ctx->rs);
-  CHECK;
+  CHECK(err);
   ctx->ip = data.op;
   return 1;
 }
@@ -332,34 +357,32 @@ cell_t search(Data data, Ctx *ctx) {
   return 1;
 }
 
-cell_t loopstart(Data data, Ctx *ctx) {
-    Data d = {.op = ctx->ip};
-    int err = push(d, &ctx->cfs);
-    CHECK;
+cell_t colon(Data data, Ctx* ctx) {
+  ctx->compile = true;
+  advance();
+  return 1;
+}
+
+cell_t jmp(Data data, Ctx *ctx) {
+  int err = 1;
+  Data d = pop(&err, &ctx->ds);
+  CHECK(err);
+  ctx->ip = d.op;
+  return 1;
+}
+
+cell_t jmpif(Data data, Ctx *ctx) {
+  int err = 1;
+  Data condition = pop(&err, &ctx->ds);
+  CHECK(err);
+  Data address = pop(&err, &ctx->ds);
+  CHECK(err);
+  if (condition.data != 0) {
+    ctx->ip = address.op;
+  } else {
     ctx->ip++;
-    return 1;
-}
-
-cell_t loopend(Data data, Ctx *ctx) {
-    int err = 1;
-    Data d = pop(&err, &ctx->cfs);
-    CHECK;
-    ctx->ip = d.op;
-    return 1;
-}
-
-cell_t loopendif(Data data, Ctx *ctx) {
-    int err = 1;
-    Data to_jumpto = pop(&err, &ctx->cfs);
-    CHECK
-    Data d = pop(&err, &ctx->ds);
-    CHECK;
-    if (d.data != 0) {
-        ctx->ip = to_jumpto.op;
-    } else {
-        ctx->ip++;
-    }
-    return 1;
+  }
+  return 1;
 }
 
 int main() {
@@ -376,13 +399,11 @@ int main() {
       {.head = dot},
       {.head = ret},
   };
-  Op program[] = {{.head = loopstart},
-                  {.head = subroutine, .body = {.op = &two[0]}},
-                  {.head = loopend},
-                  {.head = halt}};
 
-  Ctx ctx = {
-  .ds = {.sp = -1}, .rs = {.sp = -1},.cfs={.sp = -1},.ip = &program[0], .compile = false};
+  Ctx ctx = {.ds = {.sp = -1},
+             .rs = {.sp = -1},
+             .ip = &two[0],
+             .compile = false};
 
   for (;;) {
     if (ctx.ip->head(ctx.ip->body, &ctx) != 1) {
