@@ -1,4 +1,3 @@
-
 //MIT License
 //
 //Copyright (c) 2024 Juraj Babić
@@ -87,6 +86,35 @@ fn add(_: Data, ctx: *FCtx) StackErr!void {
     ctx.ip += 1;
 }
 
+
+fn sub(_: Data, ctx: *FCtx) StackErr!void {
+    const b = try ctx.ds.pop();
+    const a = try ctx.ds.pop();
+    try ctx.ds.push(.{.data= a.data - b.data});
+    ctx.ip += 1;
+}
+
+fn mul(_: Data, ctx: *FCtx) StackErr!void {
+    const b = try ctx.ds.pop();
+    const a = try ctx.ds.pop();
+    try ctx.ds.push(.{.data= a.data - b.data});
+    ctx.ip += 1;
+}
+
+fn div(_: Data, ctx: *FCtx) StackErr!void {
+    const b = try ctx.ds.pop();
+    const a = try ctx.ds.pop();
+    try ctx.ds.push(.{.data= a.data / b.data});
+    ctx.ip += 1;
+}
+
+fn mod(_: Data, ctx: *FCtx) StackErr!void {
+    const b = try ctx.ds.pop();
+    const a = try ctx.ds.pop();
+    try ctx.ds.push(.{.data= a.data % b.data});
+    ctx.ip += 1;
+}
+
 fn quit(_: Data, _: *FCtx) StackErr!void {
     std.process.exit(0);
 }
@@ -100,6 +128,15 @@ fn subroutine(data: Data, ctx: *FCtx) StackErr!void {
 fn ret(_: Data, ctx: *FCtx) StackErr!void {
     ctx.ip = (try ctx.rs.pop()).op;
 }
+
+fn jmp(data: Data, ctx: *FCtx) StackErr!void {
+    ctx.ip=data.op;
+}
+
+fn jmp(data: Data, ctx: *FCtx) StackErr!void {
+    ctx.ip=data.op;
+}
+
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -121,6 +158,6 @@ pub fn main() !void {
         .rs = Stack.init(),
         .ip = @as([*]Op, &forth_main) };
     while (true) {
-        try ctx.ip[0].head(ctx.ip[0].body, &ctx);
+            try ctx.ip[0].head(ctx.ip[0].body, &ctx);
     }
 }
