@@ -133,10 +133,14 @@ fn jmp(data: Data, ctx: *FCtx) StackErr!void {
     ctx.ip=data.op;
 }
 
-fn jmp(data: Data, ctx: *FCtx) StackErr!void {
-    ctx.ip=data.op;
+fn jnz(data: Data, ctx: *FCtx) StackErr!void {
+    const a = try ctx.ds.pop();
+    if (a.data != 0) {
+        ctx.ip=data.op;
+    } else {
+        ctx.ip+=1;
+    }
 }
-
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
