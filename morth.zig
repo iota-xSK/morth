@@ -59,7 +59,7 @@ const Stack = struct {
     }
 };
 
-const FCtx = struct { ip: [*]Op, rs: Stack, ds: Stack, compile: bool, dict: std.ArrayList(Word) };
+const FCtx = struct { ip: [*]Op, rs: Stack, ds: Stack, compile: bool, dict: std.ArrayList(Word), mem: [1024]i32};
 
 const Word = struct {
     def: std.ArrayList(*Op),
@@ -115,6 +115,89 @@ fn mod(_: Data, ctx: *FCtx) StackErr!void {
     ctx.ip += 1;
 }
 
+fn eq(_: Data, ctx: *FCtx) StackErr!void {
+    const b = try ctx.ds.pop();
+    const a = try ctx.ds.pop();
+    if (a.data == b.data) {
+        try ctx.ds.push(.{.data= -1});
+    } else {
+        try ctx.ds.push(.{.data= 0});
+    }
+    ctx.ip += 1;
+}
+
+fn gth(_: Data, ctx: *FCtx) StackErr!void {
+    const b = try ctx.ds.pop();
+    const a = try ctx.ds.pop();
+    if (a.data > b.data) {
+        try ctx.ds.push(.{.data= -1});
+    } else {
+        try ctx.ds.push(.{.data= 0});
+    }
+    ctx.ip += 1;
+}
+
+
+fn lth(_: Data, ctx: *FCtx) StackErr!void {
+    const b = try ctx.ds.pop();
+    const a = try ctx.ds.pop();
+    if (a.data < b.data) {
+        try ctx.ds.push(.{.data= -1});
+    } else {
+        try ctx.ds.push(.{.data= 0});
+    }
+    ctx.ip += 1;
+}
+
+fn @"and"(_: Data, ctx: *FCtx) StackErr!void {
+    const b = try ctx.ds.pop();
+    const a = try ctx.ds.pop();
+    if (a.data != 0 and b.data != 0) {
+        try ctx.ds.push(.{.data= -1});
+    } else {
+        try ctx.ds.push(.{.data= 0});
+    }
+    ctx.ip += 1;
+}
+
+
+fn @"or"(_: Data, ctx: *FCtx) StackErr!void {
+    const b = try ctx.ds.pop();
+    const a = try ctx.ds.pop();
+    if (a.data != 0 or b.data != 0) {
+        try ctx.ds.push(.{.data= -1});
+    } else {
+        try ctx.ds.push(.{.data= 0});
+    }
+    ctx.ip += 1;
+}
+
+
+fn @"not"(_: Data, ctx: *FCtx) StackErr!void {
+    const a = try ctx.ds.pop();
+    if (a.data != 0) {
+        try ctx.ds.push(.{.data= -1});
+    } else {
+        try ctx.ds.push(.{.data= 0});
+    }
+    ctx.ip += 1;
+}
+
+fn write(_: Data, ctx: *FCtx) StackErr!void {
+    const data = try ctx.ds.pop();
+    const addr = try ctx.ds.pop();
+
+    ctx.mem[@intCast(addr.data)] = data.data;
+    ctx.ip+=1;
+}
+
+fn read(_: Data, ctx: *FCtx) StackErr!void {
+    const addr = try ctx.ds.pop();
+
+    ctx.ds.push(ctx.mem[@intCast(addr.data)]);
+    ctx.ip+=1;
+}
+
 fn quit(_: Data, _: *FCtx) StackErr!void {
     std.process.exit(0);
 }
@@ -158,6 +241,7 @@ pub fn main() !void {
     var ctx: FCtx = .{
         .compile = false,
         .dict = std.ArrayList(Word).init(alloc),
+        .mem = undefined,
         .ds = Stack.init(),
         .rs = Stack.init(),
         .ip = @as([*]Op, &forth_main) };
