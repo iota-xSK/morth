@@ -1,2 +1,4 @@
 morth
 .vscode
+*.o
+mothbyte

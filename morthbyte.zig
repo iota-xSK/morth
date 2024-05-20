@@ -1,39 +1,13 @@
-//MIT License
-//
-//Copyright (c) 2024 Juraj Babić
-//
-//Permission is hereby granted, free of charge, to any person obtaining a copy
-//of this software and associated documentation files (the "Software"), to deal
-//in the Software without restriction, including without limitation the rights
-//to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-//copies of the Software, and to permit persons to whom the Software is
-//furnished to do so, subject to the following conditions:
-//
-//The above copyright notice and this permission notice shall be included in all
-//copies or substantial portions of the Software.
-//
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-//IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-//AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-//LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-//OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-//SOFTWARE.
 const std = @import("std");
-
-const Data = union {
-    op: [*]Op,
-    data: i32,
-};
-
-const Op = struct {
-    head: *const fn (data: Data, ctx: *FCtx) StackErr!void,
-    body: Data,
-};
 
 const StackErr = error{
     StackUnderflow,
     StackOverflow,
+};
+
+const Data = union {
+    op: u32,
+    data: i32,
 };
 
 const Stack = struct {
@@ -59,13 +33,7 @@ const Stack = struct {
     }
 };
 
-const FCtx = struct { ip: [*]Op, rs: Stack, ds: Stack, compile: bool, mem: [1024]i32};
-
-const Word = struct {
-    def: std.ArrayList(*Op),
-    immediate: bool,
-    name: *u8,
-};
+const FCtx = struct { ip: u32, rs: Stack, ds: Stack, compile: bool, mem: [1024]i32};
 
 fn lit(data: Data, ctx: *FCtx) StackErr!void {
     try ctx.ds.push(data);
@@ -231,9 +199,7 @@ fn ovr(_: Data, ctx: *FCtx) StackErr!void {
     try ctx.ds.push(a);
     try ctx.ds.push(b);
     try ctx.ds.push(a);
-    ctx.ip+=1;
 }
-
 
 fn dup(_: Data, ctx: *FCtx) StackErr!void {
     const a = try ctx.ds.pop();
@@ -250,49 +216,51 @@ fn swp(_: Data, ctx: *FCtx) StackErr!void {
     ctx.ip+=1;
 }
 
-
-fn drop(_: Data, ctx: *FCtx) StackErr!void {
-    _ = try ctx.ds.pop();
-}
-
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var fib: [14]Op = .{
-        Op{.head = dup, .body = undefined}, // 3 3
-        Op{.head = lit, .body = Data {.data = 2}}, // 3 3 2
-        Op{.head = lth, .body = undefined}, // 3 0
-        Op{.head= jnz, .body = undefined}, //  3
+    const program: [18]u64 = .{
+        0x00000003_00000022, // lit
+        0x00000001_00000004, // subroutine 4
+        0x0000000A_00000000, // dot
+        0x0,
 
-        Op{.head = dup, .body = undefined}, // 3 3
-        Op{.head = lit, .body = Data {.data = 1}}, // 3 3 1
-        Op{.head = sub, .body = undefined}, // 3 2
-        Op{.head = subroutine, .body = undefined}, // 3 x
+        0x00000002_00000000, // dup
+        0x00000003_00000002, // lit 2
+        0x00000005_00000000, // lth
+        0x00000006_00000011, // jnz
 
-        Op{.head = swp, .body = undefined}, // x 3
-        Op{.head = lit, .body = Data {.data = 2}}, // x 3 2
-        Op{.head = sub, .body = undefined}, // x 1
-        Op{.head = subroutine, .body = undefined}, // x y
+        0x00000002_00000000, // dup
+        0x00000003_00000001, // lit 1
+        0x00000009_00000000, // sub
+        0x00000001_00000004, // subroutine 4
 
-        Op{.head = add, .body = undefined},
+        0x00000007_00000000, // swp
+        0x00000003_00000002, // lit 2
+        0x00000009_00000000, // sub
+        0x00000001_00000004, // subroutine 4
 
-        Op{.head = ret, .body = undefined},
+        0x00000008_00000000, // add
+        0x0000000B_00000004, // ret
     };
-    fib[3].body = Data {.op = @as([*]Op, &fib) + 13};
-    fib[7].body = Data {.op = @as([*]Op, &fib)};
-    fib[11].body = Data {.op = @as([*]Op, &fib)};
-    var fibmain: [4]Op = .{
-        Op{.head = lit, .body = Data {.data = 0x22}},
-        Op{.head = subroutine, .body = Data {.op = @as([*]Op, &fib) }},
-        Op{.head = dot, .body = undefined},
-        Op{ .head = quit, .body = Data{ .data = 0 } } };
     var ctx: FCtx = .{
         .compile = false,
         .mem = undefined,
         .ds = Stack.init(),
         .rs = Stack.init(),
-        .ip = @as([*]Op, &fibmain) };
+        .ip = 0 };
     while (true) {
-        try ctx.ip[0].head(ctx.ip[0].body, &ctx);
+       try switch (program[@intCast(ctx.ip)] >> 32) {
+            0x0 => quit(undefined, &ctx),
+            0x1 => subroutine(Data{.op = @intCast(program[@intCast(ctx.ip)] & 0xFFFFFFFF)}, &ctx),
+            0x2 => dup(undefined, &ctx),
+            0x3 => lit(Data{.data = @intCast(program[@intCast(ctx.ip)] & 0xFFFFFFFF)}, &ctx),
+            0x5 => lth(undefined, &ctx),
+            0x6 => jnz(Data{.op = @intCast(program[@intCast(ctx.ip)] & 0xFFFFFFFF)}, &ctx),
+            0x7 => swp(undefined, &ctx),
+            0x8 => add(undefined, &ctx),
+            0x9 => sub(undefined, &ctx),
+            0xA => dot(undefined, &ctx),
+            0xB => ret(undefined, &ctx),
+           else => break
+        };
     }
 }
